@@ -4,7 +4,7 @@
 #include <device_functions.h>
 #include <stdio.h>
 #include <cuda.h>
-
+#include <cmath>
 #include <iostream>
 #include <cstdlib>
 #include <ctime>
@@ -19,6 +19,54 @@ void print_table(int* table, unsigned long int table_size);
 int mergeCPU(int* table_in1, int* table_in2, int* table_in, unsigned long int len);
 int mergeSortCPU(int* table_in, unsigned long int len);
 void myFunction(int* myTable, int size);
+
+
+__global__ void MaclaurinSeriesKernel(int* array, int size) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < size) {
+        float x = static_cast<float>(array[i]) / 1000.0;  // Adjust x for better convergence
+        float result = 1.0;
+        float term = 1.0;
+        for (int j = 1; j <= 100; j++) {
+            term *= x / j;
+            result += term;
+        }
+        array[i] = static_cast<int>(1000.0 * result);
+    }
+}
+
+
+void MaclaurinSeries(int* array, int size) {
+    for (int i = 0; i < size; i++) {
+        float x = static_cast<float>(array[i]) / 1000.0;  // Adjust x for better convergence
+        float result = 1.0;
+        float term = 1.0;
+        for (int j = 1; j <= 100; j++) {
+            term *= x / j;
+            result += term;
+        }
+        array[i] = static_cast<int>(1000.0 * result);
+    }
+}
+
+__global__ void ReverseSortKernel(int* array, int size) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < size / 2) {
+        int temp = array[i];
+        array[i] = array[size - 1 - i];
+        array[size - 1 - i] = temp;
+    }
+}
+
+void ReverseSort(int* array, int size) {
+    for (int i = 0; i < size / 2; i++) {
+        int temp = array[i];
+        array[i] = array[size - 1 - i];
+        array[size - 1 - i] = temp;
+    }
+}
+
+
 
 void myFunction(int* myTable, int size) {
     printf("\n");
@@ -229,59 +277,42 @@ void print_table(int* table, unsigned long int table_size) {
     printf("%d}\n", table[table_size - 1]);
 }
 
-int main()
-{
+int main() {
     dummyKernel << <1, 1 >> > ();
     cudaDeviceSynchronize();
     const int MAX_THREADS = 1024;
 
-    //int dynamic_size = 4096;
-    //int dynamic_size = 1024;
-    //int dynamic_size = 32768;
-    //int dynamic_size = 131072;
-    //int dynamic_size = 262144;
-    //int dynamic_size = 1048576;
-    //unsigned long int dynamic_size = 8388608;
-    //unsigned long int dynamic_size = 16777216;
     unsigned long int dynamic_size = 33554432;
 
     int* dynamic_table = new int[dynamic_size];
     int* dynamic_table_CPU = new int[dynamic_size];
-
     int* dynamic_table_out = new int[dynamic_size];
 
     generateNumbers(dynamic_table, dynamic_table_CPU, dynamic_size);
-
-    //print_table(dynamic_table_CPU, dynamic_size);
 
     auto start_CPU = chrono::high_resolution_clock::now();
     mergeSortCPU(dynamic_table_CPU, dynamic_size);
     auto end_CPU = chrono::high_resolution_clock::now();
     chrono::duration<float> duration_CPU = end_CPU - start_CPU;
 
-
-    std::cout << "CPU:: | Time = " << duration_CPU.count() << endl;
+    std::cout << "CPU Sort Time: " << duration_CPU.count() << " seconds\n";
 
     auto start_GPU = chrono::high_resolution_clock::now();
-
     cudaError_t cudaStatus1 = mergeSortCuda(dynamic_table, dynamic_table_out, dynamic_size);
-
     auto end_GPU = chrono::high_resolution_clock::now();
     chrono::duration<float> duration_GPU = end_GPU - start_GPU;
-    std::cout << "GPU:: | Time = " << duration_GPU.count() << endl;
-    //printf("GPU:: | Time =  %d ", duration_GPU.count());
 
-    if (cudaStatus1 != cudaSuccess) {
-        fprintf(stderr, "mergeSortCuda failed!");
-        delete[] dynamic_table;
-        delete[] dynamic_table_CPU;
-        delete[] dynamic_table_out;
-        return 1;
-    }
+    std::cout << "GPU Sort Time: " << duration_GPU.count() << " seconds\n";
 
-    std::cout << "CPU:: | Time = " << duration_CPU.count() << endl;
-    std::cout << "GPU:: | Time = " << duration_GPU.count() << endl;
+    
 
+   
+
+    
+
+
+
+    // Display a few elements from the arrays
     int step = 1;
     printf("CPU: ");
     for (int i = 0; i < 16; i += 1) {
@@ -295,32 +326,60 @@ int main()
     printf("%d %d", dynamic_table_out[dynamic_size / 2], dynamic_table_out[dynamic_size - 1]);
 
 
-    auto start_CPU2 = chrono::high_resolution_clock::now();
-    myFunction(dynamic_table_out, dynamic_size);
-    auto end_CPU2 = chrono::high_resolution_clock::now();
-    chrono::duration<float> duration_CPU2 = end_CPU2 - start_CPU2;
+
+    auto start_CPU_math = chrono::high_resolution_clock::now();
+    MaclaurinSeries(dynamic_table_CPU, dynamic_size);
+    auto end_CPU_math = chrono::high_resolution_clock::now();
+    chrono::duration<float> duration_CPU_math = end_CPU_math - start_CPU_math;
+
+    std::cout << "\nCPU MaclaurinSeries Operation Time: " << duration_CPU_math.count() << " seconds\n";
+
+    
+    auto start_GPU_math = chrono::high_resolution_clock::now();
+    MaclaurinSeriesKernel << <(dynamic_size + 1023) / 1024, 1024 >> > (dynamic_table_out, dynamic_size);
+    cudaDeviceSynchronize();
+    auto end_GPU_math = chrono::high_resolution_clock::now();
+    chrono::duration<float> duration_GPU_math = end_GPU_math - start_GPU_math;
+
+    std::cout << "GPU MaclaurinSeries Operation Time: " << duration_GPU_math.count() << " seconds\n";
+
+   
 
 
-    std::cout << "CPU2:: | Time = " << duration_CPU2.count() << endl;
-    std::cout << "CPU2 + GPU:: | Time = " << duration_CPU2.count() + duration_GPU.count() << endl;
-    printf("\nGPU2: ");
-    for (int i = 0; i < 16; i++) {
-        printf("%d ", dynamic_table_out[i * step]);
-    }
-    printf("%d %d", dynamic_table_out[dynamic_size / 2], dynamic_table_out[dynamic_size - 1]);
-    printf("\n");
-    cudaStatus1 = cudaDeviceReset();
-    if (cudaStatus1 != cudaSuccess) {
-        fprintf(stderr, "cudaDeviceReset failed!");
-        delete[] dynamic_table;
-        delete[] dynamic_table_CPU;
-        delete[] dynamic_table_out;
-        return 1;
-    }
+  
+    auto start_CPU_reverse = chrono::high_resolution_clock::now();
+    ReverseSort(dynamic_table_CPU, dynamic_size);
+    auto end_CPU_reverse = chrono::high_resolution_clock::now();
+    chrono::duration<float> duration_CPU_reverse = end_CPU_reverse - start_CPU_reverse;
 
+    std::cout << "CPU ReverseSort Time: " << duration_CPU_reverse.count() << " seconds\n";
+
+
+
+
+    auto start_GPU_reverse = chrono::high_resolution_clock::now();
+    ReverseSortKernel << <(dynamic_size + 1023) / 1024, 1024 >> > (dynamic_table_out, dynamic_size);
+    cudaDeviceSynchronize();
+    auto end_GPU_reverse = chrono::high_resolution_clock::now();
+    chrono::duration<float> duration_GPU_reverse = end_GPU_reverse - start_GPU_reverse;
+
+    std::cout << "GPU ReverseSort Time: " << duration_GPU_reverse.count() << " seconds\n";
+
+    
+
+
+
+    // Clean up
     delete[] dynamic_table;
     delete[] dynamic_table_CPU;
     delete[] dynamic_table_out;
+
+    cudaStatus1 = cudaDeviceReset();
+    if (cudaStatus1 != cudaSuccess) {
+        fprintf(stderr, "cudaDeviceReset failed!");
+        return 1;
+    }
+
     return 0;
 }
 
